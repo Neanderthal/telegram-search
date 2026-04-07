@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "telegram-search"
+version = "0.1.0"
+description = "MCP server for read-only search through Telegram chats, groups, and channels"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.2.0",
+    "telethon>=1.28.5",
+]
+
+[project.scripts]
+telegram-search = "telegram_search.server:main"

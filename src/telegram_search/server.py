@@ -1,14 +1,11 @@
 """Telegram Search MCP Server — read-only search through Telegram chats/groups."""
+
 from __future__ import annotations
 
-import atexit
-import os
-import shutil
-import tempfile
+import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Optional
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -18,77 +15,42 @@ from telethon.errors import FloodWaitError
 from telethon.tl.types import (
     Channel,
     Chat,
-    Document,
-    MessageMediaDocument,
-    MessageMediaGeo,
-    MessageMediaPhoto,
-    MessageMediaWebPage,
+    InputMessagesFilterDocument,
+    InputMessagesFilterGeo,
+    InputMessagesFilterMusic,
+    InputMessagesFilterPhotos,
+    InputMessagesFilterRoundVideo,
+    InputMessagesFilterUrl,
+    InputMessagesFilterVideo,
+    InputMessagesFilterVoice,
     User,
 )
 
+from telegram_search.client import AppContext, LazyTelegramClient
+from telegram_search.helpers import _format_message, _parse_date, _resolve_entity
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-API_ID = int(os.environ.get("TELEGRAM_API_ID", "13500944"))
-API_HASH = os.environ.get("TELEGRAM_API_HASH", "03ef9adf59670f3ae824c0ad1bec5a48")
-PHONE = os.environ.get("TELEGRAM_PHONE", "+79119125372")
-_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-SESSION_PATH = os.path.expanduser(
-    os.environ.get(
-        "TELEGRAM_SESSION_PATH",
-        os.path.join(_PROJECT_DIR, "telegram_session"),
-    )
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,
 )
+logger = logging.getLogger("telegram-search")
 
 
 # ---------------------------------------------------------------------------
-# App context
+# Lifespan
 # ---------------------------------------------------------------------------
-
-class LazyTelegramClient:
-    """Connects to Telegram lazily on first use so MCP init is instant."""
-
-    def __init__(self) -> None:
-        self._client: Optional[TelegramClient] = None
-        self._tmp_dir: Optional[str] = None
-
-    async def get(self) -> TelegramClient:
-        if self._client is None:
-            session_path = self._copy_session()
-            self._client = TelegramClient(session_path, API_ID, API_HASH)
-            await self._client.start(phone=PHONE)
-        return self._client
-
-    def _copy_session(self) -> str:
-        master = SESSION_PATH + ".session"
-        if not os.path.exists(master):
-            return SESSION_PATH
-        self._tmp_dir = tempfile.mkdtemp(prefix="tg-mcp-")
-        tmp_session = os.path.join(self._tmp_dir, "telegram_session")
-        shutil.copy2(master, tmp_session + ".session")
-        return tmp_session
-
-    async def close(self) -> None:
-        if self._client is not None:
-            await self._client.disconnect()
-        if self._tmp_dir is not None:
-            shutil.rmtree(self._tmp_dir, ignore_errors=True)
-
-
-@dataclass
-class AppContext:
-    lazy_client: LazyTelegramClient
 
 
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     lazy = LazyTelegramClient()
     try:
+        logger.info("Telegram Search MCP server starting")
         yield AppContext(lazy_client=lazy)
     finally:
         await lazy.close()
+        logger.info("Telegram Search MCP server stopped")
 
 
 mcp = FastMCP("telegram-search", lifespan=lifespan)
@@ -98,89 +60,15 @@ mcp = FastMCP("telegram-search", lifespan=lifespan)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _get_client(ctx: Context[ServerSession, AppContext]) -> TelegramClient:
     return await ctx.request_context.lifespan_context.lazy_client.get()
-
-
-def _parse_date(value: Optional[str]) -> Optional[datetime]:
-    """Parse an ISO-8601 date string into a timezone-aware datetime."""
-    if not value:
-        return None
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _media_indicator(message) -> str:
-    """Return a short text tag describing attached media."""
-    media = message.media
-    if media is None:
-        return ""
-    if isinstance(media, MessageMediaPhoto):
-        return "\n[media: photo]"
-    if isinstance(media, MessageMediaDocument):
-        doc = media.document
-        if isinstance(doc, Document):
-            for attr in doc.attributes:
-                type_name = type(attr).__name__
-                if "Audio" in type_name or "Voice" in type_name:
-                    return "\n[media: audio/voice]"
-                if "Video" in type_name:
-                    return "\n[media: video]"
-                if "Sticker" in type_name:
-                    return "\n[media: sticker]"
-            return "\n[media: document]"
-        return "\n[media: document]"
-    if isinstance(media, MessageMediaWebPage):
-        return "\n[media: link preview]"
-    if isinstance(media, MessageMediaGeo):
-        return "\n[media: location]"
-    return "\n[media: other]"
-
-
-def _format_message(msg) -> str:
-    """Format a single Telethon Message into a readable text block."""
-    date_str = msg.date.strftime("%Y-%m-%d %H:%M") if msg.date else "unknown date"
-
-    sender = msg.sender
-    if sender is None:
-        sender_name = "Unknown"
-    elif isinstance(sender, User):
-        parts = [sender.first_name or "", sender.last_name or ""]
-        sender_name = " ".join(p for p in parts if p) or sender.username or str(sender.id)
-    elif isinstance(sender, (Chat, Channel)):
-        sender_name = sender.title or str(sender.id)
-    else:
-        sender_name = str(getattr(sender, "id", "Unknown"))
-
-    text = msg.text or ""
-    media = _media_indicator(msg)
-
-    return "[{date}] {sender}:\n{text}{media}".format(
-        date=date_str,
-        sender=sender_name,
-        text=text,
-        media=media,
-    )
-
-
-async def _resolve_entity(client: TelegramClient, chat: str):
-    """Resolve a chat identifier (name, username, or numeric ID) to an entity."""
-    # Try numeric ID first
-    try:
-        numeric = int(chat)
-        return await client.get_entity(numeric)
-    except (ValueError, TypeError):
-        pass
-
-    # Username or name
-    return await client.get_entity(chat)
 
 
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 async def list_dialogs(
@@ -203,8 +91,6 @@ async def list_dialogs(
                 break
 
             if folder and hasattr(dialog, "folder_id"):
-                # Telegram folder filtering is limited; skip if folder requested
-                # but we can't resolve folder names without extra API calls.
                 pass
 
             entity = dialog.entity
@@ -319,17 +205,6 @@ async def search_global(
         limit: Max messages to return (default 20).
         filter_type: Optional filter — one of: photos, documents, links, music, video, voice, round_video, geo.
     """
-    from telethon.tl.types import (
-        InputMessagesFilterDocument,
-        InputMessagesFilterGeo,
-        InputMessagesFilterMusic,
-        InputMessagesFilterPhotos,
-        InputMessagesFilterRoundVideo,
-        InputMessagesFilterUrl,
-        InputMessagesFilterVideo,
-        InputMessagesFilterVoice,
-    )
-
     client = await _get_client(ctx)
 
     filter_map = {
@@ -367,7 +242,6 @@ async def search_global(
 
     blocks = []
     for msg in messages:
-        # Include chat name for global results
         chat_name = ""
         if msg.chat:
             chat_name = getattr(msg.chat, "title", None) or getattr(msg.chat, "first_name", None) or str(msg.chat_id)
@@ -502,7 +376,6 @@ async def get_message_context(
     except Exception as e:
         return "Could not resolve chat '{chat}': {err}".format(chat=chat, err=e)
 
-    # Get messages *after* the target (newer), by using min_id
     after_msgs = []
     try:
         async for msg in client.iter_messages(
@@ -514,21 +387,18 @@ async def get_message_context(
     except FloodWaitError as e:
         return "Rate-limited by Telegram. Retry after {s} seconds.".format(s=e.seconds)
 
-    # Get the target message and messages *before* it (older)
     before_msgs = []
     try:
         async for msg in client.iter_messages(
             entity,
             offset_id=message_id + 1,
-            limit=context_size + 1,  # +1 to include the target itself
+            limit=context_size + 1,
         ):
             before_msgs.append(msg)
     except FloodWaitError as e:
         return "Rate-limited by Telegram. Retry after {s} seconds.".format(s=e.seconds)
 
-    # Combine: after (reversed to chronological) + before
     all_msgs = list(reversed(after_msgs)) + before_msgs
-    # Deduplicate by id and sort chronologically
     seen = set()
     unique = []
     for m in all_msgs:
@@ -551,5 +421,11 @@ async def get_message_context(
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+
+def main():
+    """Entry point for the telegram-search MCP server."""
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

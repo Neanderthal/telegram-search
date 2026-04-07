@@ -1,134 +1,122 @@
-```
- _____ _           _                         _
-|_   _| | __ _ ___| | __ _ _ __   __ _ _ __ | | __
-  | | | |/ _` / __| |/ _` | '_ \ / _` | '_ \| |/ _` |
-  | | | | (_| \__ \ | (_| | | | | (_| | | | | | (_| |
-  |_| |_|\__,_|___/_|\__,_|_| |_|\__,_|_| |_|_|\__,_|
-```
+# Telegram Search MCP Server
 
-# Telegram Search MCP Plugin
-
-This project provides a robust and efficient Telegram search plugin, designed to integrate with platforms like Claude Code  or other (MCP) systems. It enables powerful message searching within Telegram chats, offering a foundational component for various automation and data retrieval tasks.
+Read-only MCP server for searching Telegram chats, groups, and channels. Integrates with Claude Code and other MCP-compatible clients.
 
 ## Features
 
-*   **Comprehensive Search:** Search messages across Telegram chats by keywords.
-*   **Session Management:** Tools for creating and managing Telegram sessions.
-*   **API Integration:** Built to interface with Telegram's API via `Telethon` or similar libraries.
-*   **Production Ready:** Designed with best practices for deployment in mind.
+- **Message Search** — search by keyword within specific chats
+- **Global Search** — search across all chats with optional media filters
+- **Chat Management** — list dialogs with metadata
+- **Chat History** — retrieve recent messages with pagination
+- **Chat Info** — get metadata about users, groups, channels
+- **Message Context** — get surrounding messages around a specific message
 
-## Table of Contents
+## Requirements
 
-*   [Installation](#installation)
-*   [Setup](#setup)
-*   [Usage](#usage)
-*   [Deployment for Production](#deployment-for-production)
-*   [Project Structure](#project-structure)
-*   [Requirements](#requirements)
-*   [License](#license)
+- Python 3.10+ (3.12+ recommended)
+- Telegram API credentials from [my.telegram.org](https://my.telegram.org/)
 
 ## Installation
 
-### 1. Clone the repository
-
 ```bash
+# Clone and install
 git clone https://github.com/Neanderthal/telegram-search.git
 cd telegram-search
-```
 
-### 2. Install dependencies
+# Using uv (recommended)
+uv pip install -e .
 
-It is highly recommended to use a virtual environment.
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Or using pip
+pip install -e .
 ```
 
 ## Setup
 
-### 1. Obtain Telegram API Credentials
-
-You need `api_id` and `api_hash` from Telegram. Follow these steps:
-1.  Go to [my.telegram.org](https://my.telegram.org/).
-2.  Log in using your Telegram phone number.
-3.  Click on "API Development Tools".
-4.  Create a new application. You will get `api_id` and `api_hash`.
-
-### 2. Create a Telegram Session
-
-Run the `create_session.py` script to generate a session file for your Telegram account. This will store your session authorization securely.
+### 1. Set environment variables
 
 ```bash
-python3 create_session.py
-```
-Follow the prompts: enter your `api_id`, `api_hash`, and phone number. A file named `telegram_session.session` will be created. Keep this file secure.
+export TELEGRAM_API_ID="your_api_id"
+export TELEGRAM_API_HASH="your_api_hash"
+export TELEGRAM_PHONE="+1234567890"
 
-### 3. Configure the Server
-
-The `server.py` script will likely need configuration to specify which session file to use and potentially other settings like listening address/port or database connections for search indexing (if applicable).
-
-Example configuration (you might need to modify `server.py` or create a config file):
-
-```python
-# In server.py or a separate config.py
-API_ID = 1234567 # Replace with your api_id
-API_HASH = 'your_api_hash_here' # Replace with your api_hash
-SESSION_NAME = 'telegram_session' # Name of the session file created by create_session.py
+# Optional: custom session file path (default: ~/.telegram-search/session)
+export TELEGRAM_SESSION_PATH="/path/to/session"
 ```
 
-## Usage
-
-### 1. Run the search server
-
-Start the `server.py` script. This will likely expose an API endpoint that can be queried for Telegram messages.
+### 2. Create a Telegram session
 
 ```bash
-python3 server.py
+python create_session.py
 ```
 
-### 2. Interact with the server (e.g., via OpenClaw/MCP)
+Follow the prompts to authenticate. A `.session` file will be created at the configured path.
 
-Once the server is running, you can send requests to its API endpoints to perform searches. The exact method will depend on the API implemented in `server.py`.
+### 3. Run the server
 
-Example (conceptual, actual implementation in `server.py` may vary):
+```bash
+# Via installed entry point
+telegram-search
 
-```python
-# Example of how an MCP might interact
-import requests
-
-response = requests.post("http://localhost:5000/search", json={"query": "your search term", "chat_id": -123456789})
-print(response.json())
+# Or directly
+python -m telegram_search.server
 ```
 
-## Deployment for Production
+## Claude Code / MCP Client Configuration
 
-For production environments, consider the following:
+Add to your MCP client config:
 
-*   **Containerization:** Use Docker to containerize the application for consistent environments.
-*   **Process Management:** Use a process manager like `systemd`, `Supervisor`, or `pm2` to ensure the `server.py` script runs continuously and restarts automatically on failure.
-*   **Environment Variables:** Store sensitive information (like `API_HASH`) as environment variables rather than directly in code.
-*   **Security:** Ensure the server's API endpoints are properly secured, especially if exposed over a network.
-*   **Logging:** Implement robust logging for monitoring and debugging.
-*   **Scalability:** If searching a large number of chats or messages, consider adding a database for indexing and faster queries.
+```json
+{
+  "mcpServers": {
+    "telegram-search": {
+      "command": "telegram-search",
+      "env": {
+        "TELEGRAM_API_ID": "your_api_id",
+        "TELEGRAM_API_HASH": "your_api_hash",
+        "TELEGRAM_PHONE": "+1234567890",
+        "TELEGRAM_SESSION_PATH": "/path/to/session"
+      }
+    }
+  }
+}
+```
+
+## Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_dialogs` | List all chats, groups, and channels |
+| `search_messages` | Search messages in a specific chat by keyword |
+| `search_global` | Search across all chats globally |
+| `get_chat_history` | Get recent messages from a chat |
+| `get_chat_info` | Get metadata about a chat/group/channel |
+| `get_message_context` | Get messages around a specific message ID |
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TELEGRAM_API_ID` | Yes | — | Telegram API ID from my.telegram.org |
+| `TELEGRAM_API_HASH` | Yes | — | Telegram API hash |
+| `TELEGRAM_PHONE` | Yes | — | Phone number for the Telegram account |
+| `TELEGRAM_SESSION_PATH` | No | `~/.telegram-search/session` | Path to session file (without `.session` extension) |
 
 ## Project Structure
 
 ```
-.
-├── create_session.py    # Script to create Telegram session file
-├── requirements.txt     # Python dependencies
-├── server.py            # Main search server application
-└── README.md            # This file
+telegram-search/
+├── pyproject.toml
+├── src/
+│   └── telegram_search/
+│       ├── __init__.py        # Package version
+│       ├── config.py          # Environment variable configuration
+│       ├── client.py          # Lazy Telegram client management
+│       ├── helpers.py         # Message formatting and utilities
+│       └── server.py          # MCP server, tools, and entry point
+├── create_session.py          # One-time session creation script
+└── README.md
 ```
-
-## Requirements
-
-*   Python 3.8+
-*   `Telethon` library (specified in `requirements.txt`)
-*   Telegram API `api_id` and `api_hash`
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT
