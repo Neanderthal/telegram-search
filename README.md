@@ -6,9 +6,9 @@
   |_| |_|\__,_|___/_|\__,_|_| |_|\__,_|_| |_|_|\__,_|
 ```
 
-# Telegram Search Plugin
+# Telegram Search MCP Plugin
 
-This project provides a robust and efficient Telegram search plugin, designed to integrate with platforms like OpenClaw or other Micro-Claw Process (MCP) systems. It enables powerful message searching within Telegram chats, offering a foundational component for various automation and data retrieval tasks.
+This project provides a robust and efficient Telegram search plugin, designed to integrate with platforms like Claude Code  or other (MCP) systems. It enables powerful message searching within Telegram chats, offering a foundational component for various automation and data retrieval tasks.
 
 ## Features
 
